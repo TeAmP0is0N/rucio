@@ -15,6 +15,7 @@
 #
 # Authors:
 # - Hannes Hansen <hannes.jakob.hansen@cern.ch>, 2018
+# - Andrew Lister <andrew.lister@stfc.ac.uk>, 2019
 #
 # PY3K COMPATIBLE
 
@@ -67,7 +68,7 @@ class Import(MethodView):
             return generate_http_error_flask(400, 'ValueError', 'Cannot decode json parameter dictionary')
 
         try:
-            import_data(data=data_to_import, issuer=request.environ.get('issuer'))
+            import_data(data=data_to_import, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'))
         except RucioException as error:
             return generate_http_error_flask(500, error.__class__.__name__, error.args[0])
 
@@ -77,7 +78,7 @@ class Import(MethodView):
 bp = Blueprint('import', __name__)
 
 import_view = Import.as_view('scope')
-bp.add_url_rule('', view_func=import_view, methods=['post', ])
+bp.add_url_rule('/', view_func=import_view, methods=['post', ])
 
 application = Flask(__name__)
 application.register_blueprint(bp)

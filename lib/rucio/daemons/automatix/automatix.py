@@ -19,6 +19,10 @@
 # - Mario Lassnig <mario.lassnig@cern.ch>, 2014
 # - Tomas Kouba <tomas.kouba@cern.ch>, 2015
 # - Hannes Hansen <hannes.jakob.hansen@cern.ch>, 2018
+# - Andrew Lister <andrew.lister@stfc.ac.uk>, 2019
+# - Eli Chadwick <eli.chadwick@stfc.ac.uk>, 2020
+# - Patrick Austin <patrick.austin@stfc.ac.uk>, 2020
+# - Thomas Beermann <thomas.beermann@cern.ch>, 2020
 #
 # PY3K COMPATIBLE
 
@@ -36,7 +40,7 @@ from datetime import datetime
 from json import load
 from math import exp
 from os import remove, rmdir, stat, getpid
-from sys import stdout, argv
+from sys import stdout
 from time import sleep, time
 
 from rucio.client import Client
@@ -91,7 +95,7 @@ def upload(files, scope, metadata, rse, account, source_dir, worker_number, tota
 
     # Physical upload
     logging.info('%s Uploading physically the files %s on %s', prepend_str, str(lfns), rse)
-    rse_info = rsemgr.get_rse_info(rse)
+    rse_info = rsemgr.get_rse_info(rse, vo=client.vo)
     try:
         success_upload = True
         for cnt in range(0, 3):
@@ -217,7 +221,7 @@ def generate_didname(metadata, dsn, did_type):
 def automatix(sites, inputfile, sleep_time, account, worker_number=1, total_workers=1, scope='tests', once=False, dataset_lifetime=None, set_metadata=False):
     sleep(sleep_time * (total_workers - worker_number) / total_workers)
 
-    executable = ' '.join(argv)
+    executable = 'automatix'
     hostname = socket.getfqdn()
     pid = getpid()
     hb_thread = threading.current_thread()
@@ -321,7 +325,9 @@ def run(total_workers=1, once=False, inputfile=None):
 
     try:
         scope = get('automatix', 'scope')
-        if InternalScope(scope) not in list_scopes():
+        client = Client()
+        filters = {'scope': InternalScope('*', vo=client.vo)}
+        if InternalScope(scope, vo=client.vo) not in list_scopes(filter=filters):
             logging.error('Scope %s does not exist. Exiting', scope)
             GRACEFUL_STOP.set()
     except Exception:

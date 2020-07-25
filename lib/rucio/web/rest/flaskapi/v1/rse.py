@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2012-2018 CERN for the benefit of the ATLAS collaboration.
+# Copyright 2018-2020 CERN for the benefit of the ATLAS collaboration.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,13 +14,12 @@
 # limitations under the License.
 #
 # Authors:
-# - Vincent Garonne <vincent.garonne@cern.ch>, 2012-2017
-# - Thomas Beermann <thomas.beermann@cern.ch>, 2012-2018
-# - Ralph Vigne <ralph.vigne@cern.ch>, 2013-2014
-# - Cedric Serfon <cedric.serfon@cern.ch>, 2014-2018
-# - Martin Barisits <martin.barisits@cern.ch>, 2017
-# - Mario Lassnig <mario.lassnig@cern.ch>, 2018
+# - Thomas Beermann <thomas.beermann@cern.ch>, 2018
+# - Vincent Garonne <vgaronne@gmail.com>, 2018
+# - Mario Lassnig <mario.lassnig@cern.ch>, 2018-2020
+# - Cedric Serfon <cedric.serfon@cern.ch>, 2018
 # - Hannes Hansen <hannes.jakob.hansen@cern.ch>, 2018-2019
+# - Andrew Lister <andrew.lister@stfc.ac.uk>, 2019
 #
 # PY3K COMPATIBLE
 
@@ -37,7 +36,8 @@ from rucio.api.rse import (add_rse, update_rse, list_rses, del_rse, add_rse_attr
                            update_protocols, get_rse, set_rse_usage,
                            get_rse_usage, list_rse_usage_history,
                            set_rse_limits, get_rse_limits, parse_rse_expression,
-                           add_distance, get_distance, update_distance)
+                           add_distance, get_distance, update_distance,
+                           list_qos_policies, add_qos_policy, delete_qos_policy)
 from rucio.common.exception import (Duplicate, AccessDenied, RSENotFound, RucioException,
                                     RSEOperationNotSupported, RSEProtocolNotSupported,
                                     InvalidObject, RSEProtocolDomainNotSupported,
@@ -71,7 +71,7 @@ class RSEs(MethodView):
         if expression:
             try:
                 data = ""
-                for rse in parse_rse_expression(expression):
+                for rse in parse_rse_expression(expression, vo=request.environ.get('vo')):
                     item = {'rse': rse}
                     data += render_json(**item) + '\n'
                 return Response(data, content_type="application/x-json-stream")
@@ -83,7 +83,7 @@ class RSEs(MethodView):
                 return generate_http_error_flask(500, error.__class__.__name__, error.args[0])
         else:
             data = ""
-            for rse in list_rses():
+            for rse in list_rses(vo=request.environ.get('vo')):
                 data += render_json(**rse) + '\n'
             return Response(data, content_type="application/x-json-stream")
 
@@ -135,6 +135,7 @@ class RSE(MethodView):
         except ValueError:
             return generate_http_error_flask(400, 'ValueError', 'Cannot decode json parameter dictionary')
         kwargs['issuer'] = request.environ.get('issuer')
+        kwargs['vo'] = request.environ.get('vo')
         try:
             add_rse(rse, **kwargs)
         except InvalidObject as error:
@@ -178,6 +179,7 @@ class RSE(MethodView):
         except ValueError:
             return generate_http_error_flask(400, 'ValueError', 'Cannot decode json parameter dictionary')
         kwargs['issuer'] = request.environ.get('issuer')
+        kwargs['vo'] = request.environ.get('vo')
         try:
             update_rse(rse, **kwargs)
         except InvalidObject as error:
@@ -214,7 +216,7 @@ class RSE(MethodView):
 
         """
         try:
-            rse_prop = get_rse(rse=rse)
+            rse_prop = get_rse(rse=rse, vo=request.environ.get('vo'))
             return Response(render_json(**rse_prop), content_type="application/json")
         except RSENotFound as error:
             return generate_http_error_flask(404, 'RSENotFound', error.args[0])
@@ -234,7 +236,7 @@ class RSE(MethodView):
 
         """
         try:
-            del_rse(rse=rse, issuer=request.environ.get('issuer'))
+            del_rse(rse=rse, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'))
         except RSENotFound as error:
             return generate_http_error_flask(404, 'RSENotFound', error.args[0])
         except AccessDenied as error:
@@ -278,7 +280,7 @@ class Attributes(MethodView):
             return generate_http_error_flask(400, 'KeyError', '%s not defined' % str(error))
 
         try:
-            add_rse_attribute(rse=rse, key=key, value=value, issuer=request.environ.get('issuer'))
+            add_rse_attribute(rse=rse, key=key, value=value, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'))
         except AccessDenied as error:
             return generate_http_error_flask(401, 'AccessDenied', error.args[0])
         except Duplicate as error:
@@ -305,7 +307,7 @@ class Attributes(MethodView):
 
         """
         try:
-            rse_attr = list_rse_attributes(rse)
+            rse_attr = list_rse_attributes(rse, vo=request.environ.get('vo'))
         except AccessDenied as error:
             return generate_http_error_flask(401, 'AccessDenied', error.args[0])
         except RSENotFound as error:
@@ -328,7 +330,7 @@ class Attributes(MethodView):
 
         """
         try:
-            del_rse_attribute(rse=rse, key=key, issuer=request.environ.get('issuer'))
+            del_rse_attribute(rse=rse, key=key, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'))
         except AccessDenied as error:
             return generate_http_error_flask(401, 'AccessDenied', error.args[0])
         except RSENotFound as error:
@@ -365,7 +367,7 @@ class Protocols(MethodView):
         """
         p_list = None
         try:
-            p_list = get_rse_protocols(rse, issuer=request.environ.get('issuer'))
+            p_list = get_rse_protocols(rse, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'))
         except RSEOperationNotSupported as error:
             return generate_http_error_flask(404, 'RSEOperationNotSupported', error.args[0])
         except RSENotFound as error:
@@ -426,7 +428,7 @@ class LFNS2PFNS(MethodView):
 
         rse_settings = None
         try:
-            rse_settings = get_rse_protocols(rse, issuer=request.environ.get('issuer'))
+            rse_settings = get_rse_protocols(rse, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'))
         except RSENotFound as error:
             return generate_http_error_flask(404, 'RSENotFound', error.args[0])
         except RSEProtocolNotSupported as error:
@@ -473,7 +475,7 @@ class Protocol(MethodView):
         parameters['scheme'] = scheme
 
         try:
-            add_protocol(rse, issuer=request.environ.get('issuer'), data=parameters)
+            add_protocol(rse, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'), data=parameters)
         except RSENotFound as error:
             return generate_http_error_flask(404, 'RSENotFound', error.args[0])
         except AccessDenied as error:
@@ -514,7 +516,7 @@ class Protocol(MethodView):
         """
         p_list = None
         try:
-            p_list = get_rse_protocols(rse, issuer=request.environ.get('issuer'))
+            p_list = get_rse_protocols(rse, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'))
         except RSENotFound as error:
             return generate_http_error_flask(404, 'RSENotFound', error.args[0])
         except RSEProtocolNotSupported as error:
@@ -556,7 +558,7 @@ class Protocol(MethodView):
             return generate_http_error_flask(400, 'ValueError', 'Cannot decode json parameter dictionary')
 
         try:
-            update_protocols(rse, issuer=request.environ.get('issuer'), scheme=scheme, hostname=hostname, port=port, data=parameter)
+            update_protocols(rse, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'), scheme=scheme, hostname=hostname, port=port, data=parameter)
         except InvalidObject as error:
             return generate_http_error_flask(400, 'InvalidObject', error.args[0])
         except RSEProtocolNotSupported as error:
@@ -594,7 +596,7 @@ class Protocol(MethodView):
 
         """
         try:
-            del_protocols(rse, issuer=request.environ.get('issuer'), scheme=scheme, hostname=hostname, port=port)
+            del_protocols(rse, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'), scheme=scheme, hostname=hostname, port=port)
         except RSEProtocolNotSupported as error:
             return generate_http_error_flask(404, 'RSEProtocolNotSupported', error.args[0])
         except RSENotFound as error:
@@ -635,7 +637,7 @@ class Usage(MethodView):
         source = request.args.get('source', None)
         per_account = request.args.get('per_account', False) == 'True'
         try:
-            usage = get_rse_usage(rse, issuer=request.environ.get('issuer'), source=source, per_account=per_account)
+            usage = get_rse_usage(rse, issuer=request.environ.get('issuer'), source=source, per_account=per_account, vo=request.environ.get('vo'))
         except RSENotFound as error:
             return generate_http_error_flask(404, 'RSENotFound', error.args[0])
         except RucioException as error:
@@ -670,7 +672,7 @@ class Usage(MethodView):
             return generate_http_error_flask(400, 'ValueError', 'Cannot decode json parameter dictionary')
 
         try:
-            set_rse_usage(rse=rse, issuer=request.environ.get('issuer'), **parameter)
+            set_rse_usage(rse=rse, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'), **parameter)
         except AccessDenied as error:
             return generate_http_error_flask(401, 'AccessDenied', error.args[0])
         except RSENotFound as error:
@@ -708,7 +710,7 @@ class UsageHistory(MethodView):
 
         try:
             data = ""
-            for usage in list_rse_usage_history(rse=rse, issuer=request.environ.get('issuer'), source=source):
+            for usage in list_rse_usage_history(rse=rse, issuer=request.environ.get('issuer'), source=source, vo=request.environ.get('vo')):
                 data = render_json(**usage) + '\n'
             return Response(data, content_type="application/x-json-stream")
         except RSENotFound as error:
@@ -741,7 +743,7 @@ class Limits(MethodView):
 
         """
         try:
-            limits = get_rse_limits(rse=rse, issuer=request.environ.get('issuer'))
+            limits = get_rse_limits(rse=rse, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'))
             return Response(render_json(**limits), content_type="application/json")
         except RSENotFound as error:
             return generate_http_error_flask(404, 'RSENotFound', error.args[0])
@@ -770,7 +772,7 @@ class Limits(MethodView):
         except ValueError:
             return generate_http_error_flask(400, 'ValueError', 'Cannot decode json parameter dictionary')
         try:
-            set_rse_limits(rse=rse, issuer=request.environ.get('issuer'), **parameter)
+            set_rse_limits(rse=rse, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'), **parameter)
         except AccessDenied as error:
             return generate_http_error_flask(401, 'AccessDenied', error.args[0])
         except RSENotFound as error:
@@ -805,7 +807,7 @@ class RSEAccountUsageLimit(MethodView):
 
         """
         try:
-            usage = get_rse_account_usage(rse=rse)
+            usage = get_rse_account_usage(rse=rse, vo=request.environ.get('vo'))
             data = ""
             for row in usage:
                 data = dumps(row, cls=APIEncoder) + '\n'
@@ -842,7 +844,8 @@ class Distance(MethodView):
         try:
             distance = get_distance(source=source,
                                     destination=destination,
-                                    issuer=request.environ.get('issuer'))
+                                    issuer=request.environ.get('issuer'),
+                                    vo=request.environ.get('vo'))
             return Response(dumps(distance, cls=APIEncoder), content_type="application/json")
         except RSENotFound as error:
             return generate_http_error_flask(404, 'RSENotFound', error.args[0])
@@ -875,6 +878,7 @@ class Distance(MethodView):
             add_distance(source=source,
                          destination=destination,
                          issuer=request.environ.get('issuer'),
+                         vo=request.environ.get('vo'),
                          **parameter)
         except AccessDenied as error:
             return generate_http_error_flask(401, 'AccessDenied', error.args[0])
@@ -908,6 +912,7 @@ class Distance(MethodView):
         try:
             update_distance(source=source, destination=destination,
                             issuer=request.environ.get('issuer'),
+                            vo=request.environ.get('vo'),
                             parameters=parameters)
         except AccessDenied as error:
             return generate_http_error_flask(401, 'AccessDenied', error.args[0])
@@ -918,6 +923,89 @@ class Distance(MethodView):
         except Exception as error:
             print(format_exc())
             return error, 500
+        return "OK", 200
+
+
+class QoSPolicy(MethodView):
+    """ Create/Update and list QoS policies of RSEs. """
+
+    @check_accept_header_wrapper_flask(['application/json'])
+    def get(self, rse):
+        """
+        List all QoS policies of an RSE.
+
+        .. :quickref: QoSPolicy; List all QoS policies of an RSE.
+
+        :param rse: The RSE name.
+        :resheader Content-Type: application/json
+        :status 200: OK.
+        :status 401: Invalid Auth Token.
+        :status 500: Internal Error.
+        :returns: List of QoS policies
+        """
+
+        try:
+            qos_policies = list_qos_policies(rse=rse, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'))
+            return Response(dumps(qos_policies, cls=APIEncoder), content_type="application/json")
+        except RSENotFound as error:
+            return generate_http_error_flask(404, 'RSENotFound', error.args[0])
+        except RucioException as error:
+            return generate_http_error_flask(500, error.__class__.__name__, error.args[0])
+        except Exception as error:
+            print(format_exc())
+            return error, 500
+
+    @check_accept_header_wrapper_flask(['application/json'])
+    def post(self, rse, qos_policy):
+        """
+        Add QoS policy to RSE
+
+        .. :quickref: QoSPolicy; Add QoS policy to RSE.
+
+        :param rse: The RSE name.
+        :param qos_policy: The QoS policy name.
+        :status 201: Created.
+        :status 401: Invalid Auth Token.
+        :status 404: RSE Not Found.
+        :status 500: Internal Error.
+        """
+        try:
+            add_qos_policy(rse=rse, qos_policy=qos_policy, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'))
+        except RSENotFound as error:
+            return generate_http_error_flask(404, 'RSENotFound', error.args[0])
+        except RucioException as error:
+            return generate_http_error_flask(500, error.__class__.__name__, error.args[0])
+        except Exception as error:
+            print(format_exc())
+            return error, 500
+
+        return "Created", 201
+
+    @check_accept_header_wrapper_flask(['application/json'])
+    def delete(self, rse, qos_policy):
+        """
+        Delete QoS policy from RSE.
+
+        .. :quickref: QoSPolicy; Delete QoS policy from RSE.
+
+        :param rse: The RSE name.
+        :param qos_policy: The QoS policy name.
+        :status 200: OK.
+        :status 401: Invalid Auth Token.
+        :status 404: RSE not found.
+        :status 500: Internal Error.
+        """
+
+        try:
+            delete_qos_policy(rse=rse, qos_policy=qos_policy, issuer=request.environ.get('issuer'), vo=request.environ.get('vo'))
+        except RSENotFound as error:
+            return generate_http_error_flask(404, 'RSENotFound', error.args[0])
+        except RucioException as error:
+            return generate_http_error_flask(500, error.__class__.__name__, error.args[0])
+        except Exception as error:
+            print(format_exc())
+            return error, 500
+
         return "OK", 200
 
 
@@ -946,6 +1034,9 @@ usage_history_view = UsageHistory.as_view('usage_history')
 bp.add_url_rule('/<rse>/usage/history', view_func=usage_history_view, methods=['get', ])
 limits_view = Limits.as_view('limits')
 bp.add_url_rule('/<rse>/limits', view_func=limits_view, methods=['get', 'put'])
+qos_policy_view = QoSPolicy.as_view('qos_policy')
+bp.add_url_rule('/<rse>/qos_policy', view_func=qos_policy_view, methods=['get', ])
+bp.add_url_rule('/<rse>/qos_policy/<policy>', view_func=qos_policy_view, methods=['post', 'delete'])
 rse_view = RSE.as_view('rse')
 bp.add_url_rule('/<rse>', view_func=rse_view, methods=['get', 'delete', 'put', 'post'])
 rses_view = RSEs.as_view('rses')
