@@ -8,7 +8,8 @@ python:
       suites: python3
   - "3.6"
 suites:
-  - syntax
+  - id: syntax
+    SYNTAX_REPORT: 1
   - python3
   - id: all
     RDBMS:
@@ -21,4 +22,4 @@ suites:
   - id: client
     RDBMS: sqlite
   - id: multi_vo
-    RDBMS: sqlite
+    RDBMS: postgres12
